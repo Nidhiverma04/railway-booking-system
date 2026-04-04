@@ -33,7 +33,7 @@ FIELDS TERMINATED BY ','
 ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 IGNORE 1 ROWS
-(train_number, train_name);
+(train_id,train_number, train_name, train_type);
 --SELECT * FROM trains;
 
 

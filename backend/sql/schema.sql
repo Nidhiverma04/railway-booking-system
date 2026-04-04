@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS stations (
 CREATE TABLE IF NOT EXISTS trains (
     train_id INT AUTO_INCREMENT PRIMARY KEY,
     train_number VARCHAR(10) UNIQUE NOT NULL,
-    train_name VARCHAR(100) NOT NULL
+    train_name VARCHAR(100) NOT NULL,
+    train_type VARCHAR(7)
 );
 
 
