@@ -2,8 +2,11 @@ import React from 'react';
 import Footer from './Footer';
 import RouteLogo from '../assets/route.png'; 
 import { Search, ArrowRightLeft, MapPin, Calendar, User, ChevronRight, Info } from 'lucide-react';
+import { useNavigate } from "react-router-dom";
 
 const Home = () => {
+  const navigate = useNavigate();
+  
   return (
     <div className="min-h-screen bg-white font-sans text-slate-900">
       {/* NAV */}
@@ -19,7 +22,10 @@ const Home = () => {
           <a href="#" className="hover:text-slate-900">PNR Status</a>
           <a href="#" className="hover:text-slate-900">Live Running</a>
         </div>
-        <button className="text-sm font-bold border border-slate-200 px-5 py-2 rounded-lg hover:bg-slate-50 transition">
+        <button
+          onClick={() => navigate("/Signup")}
+          className="text-sm font-bold border border-slate-200 px-5 py-2 rounded-lg hover:bg-slate-50 transition"
+        >
           Login / Signup
         </button>
       </nav>
