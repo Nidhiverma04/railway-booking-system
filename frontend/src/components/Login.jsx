@@ -1,11 +1,31 @@
-import React from "react";
+import React, { useState } from "react";
 import RouteLogo from "../assets/route.png";
 import { Mail, Lock, ArrowRight } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const Login = () => {
+  const navigate = useNavigate();
+  const [form, setForm] = useState({ email: "", password: "" });
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    const res = await fetch("http://localhost:5000/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      localStorage.setItem("user", JSON.stringify(data.user));
+      navigate("/");
+    } else {
+      alert(data.error);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white font-sans text-slate-900 flex flex-col">
-      
+
       {/* NAV */}
       <nav className="flex items-center justify-between px-6 lg:px-20 py-3 border-b border-slate-100">
         <div className="flex items-center gap-2">
@@ -14,8 +34,10 @@ const Login = () => {
             Railwise
           </span>
         </div>
-
-        <button className="text-sm font-bold border border-slate-200 px-5 py-2 rounded-lg hover:bg-slate-50 transition">
+        <button
+          onClick={() => navigate("/")}
+          className="text-sm font-bold border border-slate-200 px-5 py-2 rounded-lg hover:bg-slate-50 transition"
+        >
           Back to Home
         </button>
       </nav>
@@ -31,7 +53,7 @@ const Login = () => {
         }}
       >
         <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 border border-white/20">
-          
+
           {/* Heading */}
           <div className="text-center mb-8">
             <h2 className="text-3xl font-bold text-slate-900 mb-2">
@@ -43,15 +65,18 @@ const Login = () => {
           </div>
 
           {/* FORM */}
-          <form className="flex flex-col gap-5">
-            
+          <form onSubmit={handleLogin} className="flex flex-col gap-5">
+
             {/* Email */}
             <div className="border border-slate-200 rounded-xl p-3 flex items-center gap-3">
               <Mail size={18} className="text-indigo-500" />
               <input
                 type="email"
                 placeholder="Enter your email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
                 className="w-full outline-none text-sm font-medium text-slate-700"
+                required
               />
             </div>
 
@@ -61,7 +86,10 @@ const Login = () => {
               <input
                 type="password"
                 placeholder="Enter your password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
                 className="w-full outline-none text-sm font-medium text-slate-700"
+                required
               />
             </div>
 
@@ -76,12 +104,12 @@ const Login = () => {
             </div>
 
             {/* Login Button */}
-            <button className="bg-orange-600 hover:bg-orange-700 text-white font-black py-3 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 group">
+            <button
+              type="submit"
+              className="bg-orange-600 hover:bg-orange-700 text-white font-black py-3 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 group"
+            >
               Login
-              <ArrowRight
-                size={18}
-                className="group-hover:translate-x-1 transition"
-              />
+              <ArrowRight size={18} className="group-hover:translate-x-1 transition" />
             </button>
           </form>
 
@@ -94,8 +122,11 @@ const Login = () => {
 
           {/* Signup */}
           <p className="text-center text-sm text-slate-500">
-            Don’t have an account?{" "}
-            <span className="text-indigo-600 font-bold cursor-pointer hover:underline">
+            Don't have an account?{" "}
+            <span
+              onClick={() => navigate("/Signup")}
+              className="text-indigo-600 font-bold cursor-pointer hover:underline"
+            >
               Sign up
             </span>
           </p>
