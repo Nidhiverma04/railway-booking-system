@@ -1,50 +1,38 @@
--- Run these two lines first to select the database and enable local file loading
+-- Run this after schema.sql to load the CSV data
+-- Usage: mysql -u root -p railways < loader_fixed.sql
+
 USE railways;
-SET GLOBAL local_infile = 1;
 
-
--- user data 
-INSERT INTO users (name, email, password)
-VALUES
-('Prashant Yadav', 'prashant@example.com', '6377244020'),
-('Nidhi Verma', 'nidhi@example.com', '7347405662'),
-('Pratham Mahajan', 'pratham@example.com', '1234567890'),
-('Mukul Bhardwaj', 'mukul@example.com', '9876543210');
---SELECT * FROM users;
-
-
-
--- Change the file paths according to your system
--- Load data into the 'stations' table from a CSV file
-LOAD DATA LOCAL INFILE "C:\\Users\\HP\\Desktop\\Railways\\railway-booking-system\\backend\\sql\\dataset\\station_data.csv"
+-- Load stations (has header row)
+LOAD DATA LOCAL INFILE 'sql/dataset/station_data.csv'
 INTO TABLE stations
 FIELDS TERMINATED BY ','
 ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 IGNORE 1 ROWS
 (station_name, station_code);
---SELECT * FROM stations; 
 
-
--- Load data into train table
-LOAD DATA LOCAL INFILE "C:\\Users\\HP\\Desktop\\Railways\\railway-booking-system\\backend\\sql\\dataset\\train_data.csv"
+-- Load trains (has header row: train_id,train_number,train_name,train_type)
+LOAD DATA LOCAL INFILE 'sql/dataset/train_data.csv'
 INTO TABLE trains
 FIELDS TERMINATED BY ','
 ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 IGNORE 1 ROWS
-(train_id,train_number, train_name, train_type);
---SELECT * FROM trains;
+(train_id, train_number, train_name, train_type);
 
-
--- Load data into train stopes table
-LOAD DATA LOCAL INFILE "C://Users//HP//Desktop//Railways//railway-booking-system//backend//sql//dataset//train_stops_data.csv"
+-- Load train stops (has header: train_id,station_id,arrival_time,departure_time,stop_order)
+LOAD DATA LOCAL INFILE 'sql/dataset/train_stops_data.csv'
 INTO TABLE train_stops
 FIELDS TERMINATED BY ','
 ENCLOSED BY '"'
 LINES TERMINATED BY '\r\n'
 IGNORE 1 ROWS
 (train_id, station_id, arrival_time, departure_time, stop_order);
---select * from train_stops;
 
-
+-- Add performance indexes AFTER loading data (much faster)
+ALTER TABLE train_stops ADD INDEX idx_train_stop_order (train_id, stop_order);
+ALTER TABLE train_stops ADD INDEX idx_station (station_id);
+ALTER TABLE stations    ADD INDEX idx_station_name (station_name);
+ALTER TABLE stations    ADD INDEX idx_station_code (station_code);
+ALTER TABLE trains      ADD INDEX idx_train_number (train_number);

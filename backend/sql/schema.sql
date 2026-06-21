@@ -42,6 +42,25 @@ CREATE TABLE IF NOT EXISTS train_stops (
     FOREIGN KEY (station_id) REFERENCES stations(station_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NTO EXISTS bookings (
+  booking_id   INT AUTO_INCREMENT PRIMARY KEY,
+  user_id      INT NOT NULL,
+  train_id     INT NOT NULL,
+  from_station INT NOT NULL,
+  to_station   INT NOT NULL,
+  journey_date DATE NOT NULL,
+  class        VARCHAR(5),
+  passengers   JSON NOT NULL,
+  pnr          VARCHAR(10) UNIQUE NOT NULL,
+  status       ENUM('CNF','RAC','WL') DEFAULT 'CNF',
+  created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (user_id)      REFERENCES users(user_id)      ON DELETE CASCADE,
+  FOREIGN KEY (train_id)     REFERENCES trains(train_id)    ON DELETE CASCADE,
+  FOREIGN KEY (from_station) REFERENCES stations(station_id) ON DELETE CASCADE,
+  FOREIGN KEY (to_station)   REFERENCES stations(station_id) ON DELETE CASCADE
+);
+
 
 
 
