@@ -1,170 +1,306 @@
-/**
- * Dijkstra-based intermediate route finder.
- * 
- * The rail network is a weighted directed graph:
- *   - Nodes  = station IDs
- *   - Edges  = train legs (train_id, departure, arrival, duration in minutes)
- * 
- * We build the graph lazily from the train_stops table.
- * When a direct train is not available (or is RAC/WL), we find
- * paths with at most ONE intermediate stop and a minimum transfer
- * buffer of MIN_TRANSFER_MINUTES.
- */
+const { MinPriorityQueue } = require('@datastructures-js/priority-queue');
 
-const MIN_TRANSFER_MINUTES = 30; // minimum layover at intermediate station
+const MIN_TRANSFER_MINUTES = 30;
+const MAX_LAYOVER_MINUTES  = 360;
+const MAX_HOPS             = 3;
+const K                    = 10;
 
-// Convert "HH:MM:SS" to total minutes from midnight
+// ── time helpers ──────────────────────────────────────────────────────────────
+
 function timeToMinutes(t) {
   if (!t) return null;
   const parts = t.split(':').map(Number);
   return parts[0] * 60 + parts[1];
 }
 
-// Format minutes-from-midnight back to "HH:MM"
 function minutesToTime(m) {
-  const h = Math.floor(m / 60) % 24;
+  if (m == null) return '—';
+  const h   = Math.floor(m / 60) % 24;
   const min = m % 60;
   return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }
 
-// Duration in minutes between two times (handles midnight crossover)
 function duration(depMin, arrMin) {
-  if (depMin === null || arrMin === null) return Infinity;
+  if (depMin == null || arrMin == null) return Infinity;
   let diff = arrMin - depMin;
-  if (diff < 0) diff += 24 * 60; // overnight
+  if (diff < 0) diff += 24 * 60;
   return diff;
 }
 
-/**
- * Build adjacency map from DB rows.
- * Returns: Map<fromStationId, Array<{toStationId, trainId, trainName, trainNumber, depMin, arrMin, durationMin}>>
- */
+function connectionRisk(minLayover) {
+  if (minLayover < 60) return 'HIGH';
+  if (minLayover < 90) return 'MEDIUM';
+  return 'LOW';
+}
+
+// ── graph builder ─────────────────────────────────────────────────────────────
+
+const MAX_EDGES_PER_NODE = 50; // only keep 50 fastest edges per station
+
 function buildGraph(rows) {
   const graph = new Map();
   for (const r of rows) {
     if (!graph.has(r.from_station_id)) graph.set(r.from_station_id, []);
     graph.get(r.from_station_id).push({
-      toStationId: r.to_station_id,
-      trainId: r.train_id,
-      trainName: r.train_name,
-      trainNumber: r.train_number,
-      trainType: r.train_type,
-      fromName: r.from_name,
-      toName: r.to_name,
-      fromCode: r.from_code,
-      toCode: r.to_code,
-      depMin: timeToMinutes(r.departure_time),
-      arrMin: timeToMinutes(r.arrival_time),
+      toStationId : r.to_station_id,
+      trainId     : r.train_id,
+      trainName   : r.train_name,
+      trainNumber : r.train_number,
+      trainType   : r.train_type,
+      fromName    : r.from_name,
+      toName      : r.to_name,
+      fromCode    : r.from_code,
+      toCode      : r.to_code,
+      depMin      : timeToMinutes(r.departure_time),
+      arrMin      : timeToMinutes(r.arrival_time),
     });
   }
+  for (const [node, edges] of graph) {
+    if (edges.length > MAX_EDGES_PER_NODE) {
+      graph.set(node, edges
+        .sort((a, b) => duration(a.depMin, a.arrMin) - duration(b.depMin, b.arrMin))
+        .slice(0, MAX_EDGES_PER_NODE)
+      );
+    }
+  }
+
   return graph;
 }
 
-/**
- * Find DIRECT trains from src to dst.
- */
-function findDirectRoutes(graph, srcId, dstId) {
-  const edges = graph.get(srcId) || [];
-  return edges
-    .filter(e => e.toStationId === dstId)
-    .map(e => ({
-      type: 'direct',
-      totalDuration: duration(e.depMin, e.arrMin),
-      legs: [e],
-      departure: minutesToTime(e.depMin),
-      arrival: minutesToTime(e.arrMin),
-    }));
-}
+// ── Dijkstra ──────────────────────────────────────────────────────────────────
 
-/**
- * Find INDIRECT routes with exactly 1 intermediate stop.
- * Strategy: for each outgoing edge from src, check if that
- * intermediate station has an onward train to dst with adequate buffer.
- */
-function findIndirectRoutes(graph, srcId, dstId) {
-  const results = [];
-  const leg1Options = graph.get(srcId) || [];
+function dijkstra(graph, srcId, dstId, blockedEdges, blockedNodes) {
+  const pq   = new MinPriorityQueue((x) => x.cost);
+  const dist = new Map();
 
-  for (const leg1 of leg1Options) {
-    if (leg1.toStationId === dstId) continue; // skip direct
-    const midId = leg1.toStationId;
-    const leg2Options = graph.get(midId) || [];
+  pq.enqueue({
+    cost       : 0,
+    node       : srcId,
+    nodes      : [srcId],
+    edges      : [],
+    costTo     : [0],
+    lastArrMin : null,
+    lastTrainId: null,  // null = not on any train yet
+  });
 
-    for (const leg2 of leg2Options) {
-      if (leg2.toStationId !== dstId) continue;
-      if (leg1.trainId === leg2.trainId) continue; // same train = handled by direct
+  while (!pq.isEmpty()) {
+    const cur = pq.dequeue();
 
-      // Check transfer buffer
-      const layoverMin = duration(leg1.arrMin, leg2.depMin);
-      if (layoverMin < MIN_TRANSFER_MINUTES || layoverMin > 6 * 60) continue; // also skip insane waits
+    if (dist.has(cur.node)) continue;
+    dist.set(cur.node, cur.cost);
 
-      const totalDur = duration(leg1.depMin, leg2.arrMin);
-      results.push({
-        type: 'indirect',
-        totalDuration: totalDur,
-        layoverMinutes: layoverMin,
-        intermediate: { id: midId, name: leg1.toName, code: leg1.toCode },
-        legs: [leg1, leg2],
-        departure: minutesToTime(leg1.depMin),
-        arrival: minutesToTime(leg2.arrMin),
-        connectionRisk: layoverMin < 60 ? 'HIGH' : layoverMin < 90 ? 'MEDIUM' : 'LOW',
+    if (cur.node === dstId) return cur;
+
+    if (cur.nodes.length >= MAX_HOPS) continue;
+
+    for (const edge of (graph.get(cur.node) || [])) {
+      const edgeKey = `${cur.node}-${edge.toStationId}-${edge.trainId}`;
+
+      if (blockedEdges.has(edgeKey))          continue;
+      if (blockedNodes.has(edge.toStationId)) continue;
+      if (dist.has(edge.toStationId))         continue;
+
+      // ✅ FIX: only enforce train change at intermediate hops
+      // lastTrainId is null on first leg — always allow boarding
+      // on subsequent legs — must board a DIFFERENT train
+      if (cur.lastTrainId !== null && edge.trainId === cur.lastTrainId) continue;
+
+      // transfer buffer — only after first leg
+      if (cur.lastArrMin !== null) {
+        const layover = duration(cur.lastArrMin, edge.depMin);
+        if (layover < MIN_TRANSFER_MINUTES) continue;
+        if (layover > MAX_LAYOVER_MINUTES)  continue;
+      }
+
+      const legDur  = duration(edge.depMin, edge.arrMin);
+      const layover = cur.lastArrMin !== null
+        ? duration(cur.lastArrMin, edge.depMin)
+        : 0;
+      const newCost = cur.cost + layover + legDur;
+
+      pq.enqueue({
+        cost       : newCost,
+        node       : edge.toStationId,
+        nodes      : [...cur.nodes, edge.toStationId],
+        edges      : [...cur.edges, edge],
+        costTo     : [...cur.costTo, newCost],
+        lastArrMin : edge.arrMin,
+        lastTrainId: edge.trainId,
       });
     }
   }
 
-  // Sort by total duration ascending (Dijkstra's optimal-first ordering)
-  return results.sort((a, b) => a.totalDuration - b.totalDuration).slice(0, 5);
+  return null;
 }
 
-/**
- * Main entry: find all routes (direct + indirect) and return ranked list.
- * @param {*} db - mysql2 pool
- * @param {number} srcId - source station_id
- * @param {number} dstId - destination station_id
- */
-async function findRoutes(db, srcId, dstId) {
-  // Pull all relevant legs in ONE query:
-  // Leg 1: src → any intermediate
-  // Leg 2: any intermediate → dst
-  // We also pull src → dst (direct)
-  const [rows] = await db.execute(`
-    SELECT
-      ts1.train_id,
-      t.train_name,
-      t.train_number,
-      t.train_type,
-      ts1.station_id   AS from_station_id,
-      s1.station_name  AS from_name,
-      s1.station_code  AS from_code,
-      ts2.station_id   AS to_station_id,
-      s2.station_name  AS to_name,
-      s2.station_code  AS to_code,
-      ts1.departure_time,
-      ts2.arrival_time
-    FROM train_stops ts1
-    JOIN train_stops ts2
-      ON ts1.train_id = ts2.train_id
-      AND ts1.stop_order < ts2.stop_order
-    JOIN trains t ON t.train_id = ts1.train_id
-    JOIN stations s1 ON s1.station_id = ts1.station_id
-    JOIN stations s2 ON s2.station_id = ts2.station_id
-    WHERE
-      (ts1.station_id = ? OR ts2.station_id = ?)
-    AND
-      (ts1.station_id = ? OR ts2.station_id = ? OR ts1.station_id = ? OR ts2.station_id = ?)
-    LIMIT 5000
-  `, [srcId, dstId, srcId, srcId, dstId, dstId]);
+// ── Yen's K-Shortest Paths ────────────────────────────────────────────────────
 
-  const graph = buildGraph(rows);
+function yenKShortest(graph, srcId, dstId) {
+  const firstPath = dijkstra(graph, srcId, dstId, new Set(), new Set());
+  if (!firstPath) return [];
 
-  const direct = findDirectRoutes(graph, srcId, dstId);
-  const indirect = findIndirectRoutes(graph, srcId, dstId);
+  const kPaths     = [firstPath];
+  const candidates = [];
+  const seen       = new Set([firstPath.nodes.join('-')]);
+
+  for (let k = 1; k < K; k++) {
+    const prevPath = kPaths[k - 1];
+
+    for (let i = 0; i < prevPath.nodes.length - 1; i++) {
+      const spurNode = prevPath.nodes[i];
+      const rootPath = prevPath.nodes.slice(0, i + 1);
+      const rootCost = prevPath.costTo[i];
+
+      const blockedEdges = new Set();
+      for (const p of kPaths) {
+        if (p.nodes.length > i &&
+            p.nodes.slice(0, i + 1).join('-') === rootPath.join('-')) {
+          const e = p.edges[i];
+          if (e) blockedEdges.add(`${spurNode}-${e.toStationId}-${e.trainId}`);
+        }
+      }
+
+      const blockedNodes = new Set(rootPath.slice(0, -1));
+
+      const spurPath = dijkstra(graph, spurNode, dstId, blockedEdges, blockedNodes);
+      if (!spurPath) continue;
+
+      const combinedNodes = [...rootPath, ...spurPath.nodes.slice(1)];
+      const combinedKey   = combinedNodes.join('-');
+      if (seen.has(combinedKey)) continue;
+      seen.add(combinedKey);
+
+      const combinedEdges  = [...prevPath.edges.slice(0, i), ...spurPath.edges];
+
+      const combinedCostTo = [0];
+      let runningCost = 0;
+      let lastArr     = null;
+      for (const edge of combinedEdges) {
+        const layover  = lastArr !== null ? duration(lastArr, edge.depMin) : 0;
+        runningCost   += layover + duration(edge.depMin, edge.arrMin);
+        combinedCostTo.push(runningCost);
+        lastArr = edge.arrMin;
+      }
+
+      candidates.push({
+        cost  : rootCost + spurPath.cost,
+        nodes : combinedNodes,
+        edges : combinedEdges,
+        costTo: combinedCostTo,
+        key   : combinedKey,
+      });
+    }
+
+    if (candidates.length === 0) break;
+    candidates.sort((a, b) => a.cost - b.cost);
+    kPaths.push(candidates.shift());
+  }
+
+  return kPaths;
+}
+
+// ── convert raw Yen path → UI route object ────────────────────────────────────
+
+function pathToRoute(path) {
+  const { edges, cost } = path;
+  if (!edges || edges.length === 0) return null;
+
+  const firstEdge = edges[0];
+  const lastEdge  = edges[edges.length - 1];
+
+  const intermediate = edges.slice(0, -1).map(e => ({
+    name: e.toName,
+    code: e.toCode,
+  }));
+
+  const layoverMinutes = [];
+  for (let i = 0; i < edges.length - 1; i++) {
+    layoverMinutes.push(duration(edges[i].arrMin, edges[i + 1].depMin));
+  }
+
+  const minLayover = layoverMinutes.length > 0
+    ? Math.min(...layoverMinutes)
+    : Infinity;
 
   return {
-    direct: direct.sort((a, b) => a.totalDuration - b.totalDuration),
-    indirect,
-    hasAlternatives: indirect.length > 0,
+    type          : edges.length === 1 ? 'direct' : 'indirect',
+    hops          : edges.length - 1,
+    totalDuration : cost,
+    legs          : edges,
+    intermediate,
+    layoverMinutes,
+    departure     : minutesToTime(firstEdge.depMin),
+    arrival       : minutesToTime(lastEdge.arrMin),
+    connectionRisk: edges.length === 1 ? 'LOW' : connectionRisk(minLayover),
   };
+}
+
+// ── main entry ────────────────────────────────────────────────────────────────
+
+async function findRoutes(db, srcId, dstId) {
+  // ✅ FIX: fetch only legs starting at src OR ending at dst
+  // This gives us:
+  //   direct edges:       src → dst
+  //   leg 1 of indirect:  src → any_mid
+  //   leg 2 of indirect:  any_mid → dst
+  const [rows] = await db.execute(`
+    (
+      -- all legs departing FROM src station
+      SELECT
+        ts1.train_id, t.train_name, t.train_number, t.train_type,
+        ts1.station_id AS from_station_id, s1.station_name AS from_name, s1.station_code AS from_code,
+        ts2.station_id AS to_station_id,   s2.station_name AS to_name,   s2.station_code AS to_code,
+        ts1.departure_time, ts2.arrival_time
+      FROM train_stops ts1
+      JOIN train_stops ts2 ON ts1.train_id = ts2.train_id AND ts2.stop_order > ts1.stop_order
+      JOIN trains    t  ON t.train_id    = ts1.train_id
+      JOIN stations  s1 ON s1.station_id = ts1.station_id
+      JOIN stations  s2 ON s2.station_id = ts2.station_id
+      WHERE ts1.station_id = ?
+      LIMIT 3000
+    )
+    UNION
+    (
+      -- all legs arriving AT dst station
+      SELECT
+        ts1.train_id, t.train_name, t.train_number, t.train_type,
+        ts1.station_id AS from_station_id, s1.station_name AS from_name, s1.station_code AS from_code,
+        ts2.station_id AS to_station_id,   s2.station_name AS to_name,   s2.station_code AS to_code,
+        ts1.departure_time, ts2.arrival_time
+      FROM train_stops ts1
+      JOIN train_stops ts2 ON ts1.train_id = ts2.train_id AND ts2.stop_order > ts1.stop_order
+      JOIN trains    t  ON t.train_id    = ts1.train_id
+      JOIN stations  s1 ON s1.station_id = ts1.station_id
+      JOIN stations  s2 ON s2.station_id = ts2.station_id
+      WHERE ts2.station_id = ?
+      LIMIT 3000
+    )
+  `, [srcId, dstId]);
+
+  console.log(`Fetched ${rows.length} legs for src=${srcId} dst=${dstId}`);
+
+  if (rows.length === 0) {
+    return { direct: [], indirect: [], hasAlternatives: false };
+  }
+
+  const graph = buildGraph(rows);
+  console.log(`Graph nodes: ${graph.size}`);
+  console.log(`Edges from src: ${(graph.get(srcId) || []).length}`);
+
+  const allPaths = yenKShortest(graph, srcId, dstId);
+  console.log(`Yen's found ${allPaths.length} paths`);
+
+  const direct   = [];
+  const indirect = [];
+
+  for (const path of allPaths) {
+    const route = pathToRoute(path);
+    if (!route) continue;
+    if (route.type === 'direct') direct.push(route);
+    else indirect.push(route);
+  }
+
+  return { direct, indirect, hasAlternatives: indirect.length > 0 };
 }
 
 module.exports = { findRoutes, timeToMinutes, minutesToTime };

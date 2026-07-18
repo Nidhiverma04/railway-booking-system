@@ -48,7 +48,7 @@ function DirectCard({ route }) {
         </div>
         <div className="flex-1 flex flex-col items-center">
           <p className="text-xs text-slate-400 mb-1">{formatDuration(route.totalDuration)}</p>
-          <div className="w-full h-[2px] bg-indigo-200 relative">
+          <div className="w-full h-0.5 bg-indigo-200 relative">
             <div className="absolute -top-1 left-0 w-2 h-2 rounded-full bg-indigo-600" />
             <div className="absolute -top-1 right-0 w-2 h-2 rounded-full bg-indigo-600" />
           </div>
@@ -88,12 +88,12 @@ function IndirectCard({ route }) {
 
       {/* Timeline */}
       <div className="flex items-center gap-3 my-3">
-        <div className="text-center min-w-[50px]">
+        <div className="text-center min-w-12.5">
           <p className="text-lg font-bold text-slate-800">{route.departure}</p>
           <p className="text-xs text-slate-400">{leg1.fromCode}</p>
         </div>
         <div className="flex-1">
-          <div className="h-[2px] bg-indigo-200 relative">
+          <div className="h-0.5 bg-indigo-200 relative">
             <div className="absolute -top-1 left-0 w-2 h-2 rounded-full bg-indigo-600" />
             <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-white border border-indigo-100 px-1.5 py-0.5 rounded text-[9px] font-bold text-indigo-600 whitespace-nowrap">
               {route.intermediate.code}
@@ -101,7 +101,7 @@ function IndirectCard({ route }) {
             <div className="absolute -top-1 right-0 w-2 h-2 rounded-full bg-indigo-600" />
           </div>
         </div>
-        <div className="text-center min-w-[50px]">
+        <div className="text-center min-w-12.5">
           <p className="text-lg font-bold text-slate-800">{route.arrival}</p>
           <p className="text-xs text-slate-400">{leg2.toCode}</p>
         </div>
@@ -303,7 +303,6 @@ export default function SearchResults() {
                     <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 mb-4 flex items-start gap-2 text-xs text-indigo-700">
                       <CheckCircle size={14} className="mt-0.5 shrink-0" />
                       <span>
-                        These routes use Dijkstra's algorithm to find the fastest connecting paths through intermediate stations.
                         A minimum <b>30-minute transfer buffer</b> is enforced.
                       </span>
                     </div>
