@@ -104,7 +104,7 @@ function IndirectCard({ route, onBook }) {
             <div className="absolute -top-1 right-0 w-2 h-2 rounded-full bg-indigo-600" />
           </div>
         </div>
-        <div className="text-center min-w-12">
+        <div className="text-center min-w-[48px]">
           <p className="text-lg font-bold text-slate-800">{route.arrival}</p>
           <p className="text-xs text-slate-400">{legs[legs.length - 1]?.toCode}</p>
         </div>
@@ -155,6 +155,64 @@ function IndirectCard({ route, onBook }) {
   );
 }
 
+// ── Date grid helpers ─────────────────────────────────────────────────────────
+const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function getDateGrid(centerDate) {
+  // returns array of 7 Date objects: -3 to +3 days around centerDate
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(centerDate);
+    d.setDate(d.getDate() + i - 3);
+    return d;
+  });
+}
+
+function toDateString(d) {
+  // YYYY-MM-DD
+  return d.toISOString().split('T')[0];
+}
+
+function DateGrid({ selectedDate, onSelect }) {
+  const center = selectedDate ? new Date(selectedDate) : new Date();
+  const grid   = getDateGrid(center);
+  const today  = toDateString(new Date());
+
+  return (
+    <div className="flex gap-1.5 overflow-x-auto pb-1">
+      {grid.map((d, i) => {
+        const ds        = toDateString(d);
+        const isSelected = ds === selectedDate;
+        const isToday    = ds === today;
+        const isPast     = d < new Date(today);
+
+        return (
+          <button
+            key={i}
+            onClick={() => !isPast && onSelect(ds)}
+            disabled={isPast}
+            className={`flex flex-col items-center px-3 py-2 rounded-xl text-xs font-bold min-w-[52px] transition border
+              ${isSelected
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                : isPast
+                  ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed'
+                  : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
+              }`}
+          >
+            <span className={`text-[10px] font-bold mb-0.5 ${isSelected ? 'text-indigo-200' : 'text-slate-400'}`}>
+              {isToday ? 'Today' : DAY_NAMES[d.getDay()]}
+            </span>
+            <span className="text-base leading-none">{d.getDate()}</span>
+            <span className={`text-[9px] mt-0.5 ${isSelected ? 'text-indigo-200' : 'text-slate-400'}`}>
+              {MONTH_NAMES[d.getMonth()]}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function SearchResults() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -164,44 +222,52 @@ export default function SearchResults() {
   const toId     = params.get('to');
   const fromName = params.get('fromName') || 'Source';
   const toName   = params.get('toName')   || 'Destination';
-  const date     = params.get('date')     || '';
+  const date     = params.get('date')     || toDateString(new Date());
 
+  const [selectedDate, setSelectedDate] = useState(date);
   const [loading,      setLoading]      = useState(true);
   const [results,      setResults]      = useState(null);
   const [error,        setError]        = useState(null);
   const [tab,          setTab]          = useState('direct');
-  const [bookingRoute, setBookingRoute] = useState(null); // route to book
+  const [bookingRoute, setBookingRoute] = useState(null);
 
+  // re-fetch when date changes OR route changes
   useEffect(() => {
     if (!fromId || !toId) { setError('Invalid search parameters'); setLoading(false); return; }
     setLoading(true);
-    fetch(`${API}/api/trains/search?from=${fromId}&to=${toId}`)
+    setResults(null);
+    fetch(`${API}/api/trains/search?from=${fromId}&to=${toId}&date=${selectedDate}`)
       .then(r => r.json())
       .then(data => {
         if (data.error) throw new Error(data.error);
         setResults(data);
         if (!data.direct.length && data.indirect.length) setTab('indirect');
+        else setTab('direct');
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [fromId, toId]);
+  }, [fromId, toId, selectedDate]);
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
       {/* Header */}
       <div className="bg-white border-b border-slate-100 px-6 py-4 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto flex items-center gap-4">
-          <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-100 rounded-lg transition">
-            <ArrowLeft size={18} className="text-slate-600" />
-          </button>
-          <div>
-            <div className="flex items-center gap-2 font-bold text-slate-800 text-lg">
-              <span>{fromName}</span>
-              <ArrowRight size={16} className="text-slate-400" />
-              <span>{toName}</span>
+        <div className="max-w-4xl mx-auto">
+          <div className="flex items-center gap-4 mb-3">
+            <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-100 rounded-lg transition">
+              <ArrowLeft size={18} className="text-slate-600" />
+            </button>
+            <div>
+              <div className="flex items-center gap-2 font-bold text-slate-800 text-lg">
+                <span>{fromName}</span>
+                <ArrowRight size={16} className="text-slate-400" />
+                <span>{toName}</span>
+              </div>
+              <p className="text-xs text-slate-400">{new Date(selectedDate).toDateString()}</p>
             </div>
-            {date && <p className="text-xs text-slate-400">{new Date(date).toDateString()}</p>}
           </div>
+          {/* ±3 day date grid */}
+          <DateGrid selectedDate={selectedDate} onSelect={setSelectedDate} />
         </div>
       </div>
 
