@@ -132,6 +132,10 @@ app.get('/api/stations/search', async (req, res) => {
   }
 });
 
+app.use((err, req, res, next) => {
+  res.status(500).json({ error: 'Something went wrong' });
+});
+
 // ─── TRAIN SEARCH with Redis caching (public) ─────────────────────────────────
 app.get('/api/trains/search', async (req, res) => {
   const { from, to } = req.query;

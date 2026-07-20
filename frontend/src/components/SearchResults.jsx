@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight, AlertTriangle, CheckCircle, Clock, Train, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
+import BookingModal from './BookingModal';
 
 const API = 'http://localhost:5000';
 
@@ -18,19 +19,11 @@ function formatDuration(mins) {
 }
 
 function RiskBadge({ risk }) {
-  const styles = {
-    LOW: 'bg-green-100 text-green-700',
-    MEDIUM: 'bg-yellow-100 text-yellow-700',
-    HIGH: 'bg-red-100 text-red-700',
-  };
-  return (
-    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${styles[risk] || styles.LOW}`}>
-      {risk} RISK
-    </span>
-  );
+  const styles = { LOW: 'bg-green-100 text-green-700', MEDIUM: 'bg-yellow-100 text-yellow-700', HIGH: 'bg-red-100 text-red-700' };
+  return <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${styles[risk] || styles.LOW}`}>{risk} RISK</span>;
 }
 
-function DirectCard({ route }) {
+function DirectCard({ route, onBook }) {
   const leg = route.legs[0];
   return (
     <div className="border border-slate-200 rounded-xl p-5 hover:border-indigo-300 hover:shadow-md transition bg-white">
@@ -59,7 +52,8 @@ function DirectCard({ route }) {
         </div>
       </div>
       <div className="flex justify-end mt-3">
-        <button className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold px-5 py-2 rounded-lg transition">
+        <button onClick={() => onBook(route)}
+          className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold px-5 py-2 rounded-lg transition">
           Book Now
         </button>
       </div>
@@ -67,43 +61,52 @@ function DirectCard({ route }) {
   );
 }
 
-function IndirectCard({ route }) {
+function IndirectCard({ route, onBook }) {
   const [expanded, setExpanded] = useState(false);
-  const [leg1, leg2] = route.legs;
+  const legs = route.legs || [];
+  const intermediate = route.intermediate || [];
 
   return (
     <div className="border border-slate-200 rounded-xl p-5 hover:border-indigo-300 hover:shadow-md transition bg-white">
       <div className="flex justify-between items-start mb-3">
         <div>
           <p className="font-bold text-slate-800">
-            Via <span className="text-indigo-600">{route.intermediate.name}</span>
+            Via{' '}
+            {intermediate.map((m, i) => (
+              <span key={i}>
+                <span className="text-indigo-600">{m.name || m}</span>
+                {i < intermediate.length - 1 && <span className="text-slate-400 mx-1">→</span>}
+              </span>
+            ))}
           </p>
-          <p className="text-xs text-slate-400">{leg1.trainName} → {leg2.trainName}</p>
+          <p className="text-xs text-slate-400">{legs.map(l => l.trainName).join(' → ')}</p>
         </div>
         <div className="flex items-center gap-2">
           <RiskBadge risk={route.connectionRisk} />
-          <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded">2 TRAINS</span>
+          <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded">{legs.length} TRAINS</span>
         </div>
       </div>
 
-      {/* Timeline */}
       <div className="flex items-center gap-3 my-3">
-        <div className="text-center min-w-12.5">
+        <div className="text-center min-w-[48px]">
           <p className="text-lg font-bold text-slate-800">{route.departure}</p>
-          <p className="text-xs text-slate-400">{leg1.fromCode}</p>
+          <p className="text-xs text-slate-400">{legs[0]?.fromCode}</p>
         </div>
         <div className="flex-1">
           <div className="h-0.5 bg-indigo-200 relative">
             <div className="absolute -top-1 left-0 w-2 h-2 rounded-full bg-indigo-600" />
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-white border border-indigo-100 px-1.5 py-0.5 rounded text-[9px] font-bold text-indigo-600 whitespace-nowrap">
-              {route.intermediate.code}
-            </div>
+            {intermediate.map((m, i) => (
+              <div key={i} className="absolute -top-4 text-[9px] font-bold text-indigo-600 bg-white border border-indigo-100 px-1 py-0.5 rounded whitespace-nowrap"
+                style={{ left: `${((i + 1) / (legs.length)) * 100}%`, transform: 'translateX(-50%)' }}>
+                {m.code || m}
+              </div>
+            ))}
             <div className="absolute -top-1 right-0 w-2 h-2 rounded-full bg-indigo-600" />
           </div>
         </div>
-        <div className="text-center min-w-12.5">
+        <div className="text-center min-w-12">
           <p className="text-lg font-bold text-slate-800">{route.arrival}</p>
-          <p className="text-xs text-slate-400">{leg2.toCode}</p>
+          <p className="text-xs text-slate-400">{legs[legs.length - 1]?.toCode}</p>
         </div>
       </div>
 
@@ -114,41 +117,37 @@ function IndirectCard({ route }) {
         </span>
         <span className="flex items-center gap-1">
           <Train size={12} />
-          Layover: <b className="text-slate-700 ml-1">{formatDuration(route.layoverMinutes)}</b> at {route.intermediate.name}
+          {legs.length - 1} change{legs.length > 2 ? 's' : ''}
         </span>
       </div>
 
-      {/* Expand legs */}
-      <button
-        onClick={() => setExpanded(e => !e)}
-        className="text-xs text-indigo-600 font-bold flex items-center gap-1 mb-2"
-      >
+      <button onClick={() => setExpanded(e => !e)}
+        className="text-xs text-indigo-600 font-bold flex items-center gap-1 mb-2">
         {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         {expanded ? 'Hide' : 'Show'} leg details
       </button>
 
       {expanded && (
         <div className="bg-slate-50 rounded-lg p-3 text-xs space-y-2 mb-3">
-          <div className="flex justify-between">
-            <span className="font-bold">{leg1.trainName} ({leg1.trainNumber})</span>
-            <span>{leg1.fromCode} {leg1.depMin != null ? minutesToTime(leg1.depMin) : '—'} → {leg1.toCode} {leg1.arrMin != null ? minutesToTime(leg1.arrMin) : '—'}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="font-bold">{leg2.trainName} ({leg2.trainNumber})</span>
-            <span>{leg2.fromCode} {leg2.depMin != null ? minutesToTime(leg2.depMin) : '—'} → {leg2.toCode} {leg2.arrMin != null ? minutesToTime(leg2.arrMin) : '—'}</span>
-          </div>
+          {legs.map((leg, i) => (
+            <div key={i} className="flex justify-between">
+              <span className="font-bold">{leg.trainName} ({leg.trainNumber})</span>
+              <span className="font-mono">{leg.fromCode} {leg.depMin != null ? minutesToTime(leg.depMin) : '—'} → {leg.toCode} {leg.arrMin != null ? minutesToTime(leg.arrMin) : '—'}</span>
+            </div>
+          ))}
         </div>
       )}
 
       {route.connectionRisk === 'HIGH' && (
         <div className="flex items-start gap-2 bg-red-50 border border-red-100 rounded-lg p-2 text-xs text-red-700 mb-3">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span>Tight connection ({formatDuration(route.layoverMinutes)} layover). Train delays may cause you to miss the connection.</span>
+          <span>Tight connection. Train delays may cause you to miss the connecting train.</span>
         </div>
       )}
 
       <div className="flex justify-end">
-        <button className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-5 py-2 rounded-lg transition">
+        <button onClick={() => onBook(route)}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-5 py-2 rounded-lg transition">
           Book This Route
         </button>
       </div>
@@ -159,32 +158,28 @@ function IndirectCard({ route }) {
 export default function SearchResults() {
   const location = useLocation();
   const navigate = useNavigate();
-  const params = new URLSearchParams(location.search);
+  const params   = new URLSearchParams(location.search);
 
   const fromId   = params.get('from');
   const toId     = params.get('to');
   const fromName = params.get('fromName') || 'Source';
-  const toName   = params.get('toName') || 'Destination';
-  const date     = params.get('date') || '';
+  const toName   = params.get('toName')   || 'Destination';
+  const date     = params.get('date')     || '';
 
-  const [loading, setLoading] = useState(true);
-  const [results, setResults] = useState(null);
-  const [error, setError] = useState(null);
-  const [tab, setTab] = useState('direct');
+  const [loading,      setLoading]      = useState(true);
+  const [results,      setResults]      = useState(null);
+  const [error,        setError]        = useState(null);
+  const [tab,          setTab]          = useState('direct');
+  const [bookingRoute, setBookingRoute] = useState(null); // route to book
 
   useEffect(() => {
-    if (!fromId || !toId) {
-      setError('Invalid search parameters');
-      setLoading(false);
-      return;
-    }
+    if (!fromId || !toId) { setError('Invalid search parameters'); setLoading(false); return; }
     setLoading(true);
     fetch(`${API}/api/trains/search?from=${fromId}&to=${toId}`)
       .then(r => r.json())
       .then(data => {
         if (data.error) throw new Error(data.error);
         setResults(data);
-        // Auto-switch to indirect tab if no direct trains
         if (!data.direct.length && data.indirect.length) setTab('indirect');
       })
       .catch(e => setError(e.message))
@@ -194,7 +189,7 @@ export default function SearchResults() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
       {/* Header */}
-      <div className="bg-white border-b border-slate-100 px-6 py-4">
+      <div className="bg-white border-b border-slate-100 px-6 py-4 sticky top-0 z-10">
         <div className="max-w-4xl mx-auto flex items-center gap-4">
           <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-100 rounded-lg transition">
             <ArrowLeft size={18} className="text-slate-600" />
@@ -227,7 +222,6 @@ export default function SearchResults() {
 
         {results && !loading && (
           <>
-            {/* Summary bar */}
             <div className="flex items-center gap-3 mb-6">
               <div className="flex items-center gap-1.5 text-sm">
                 <CheckCircle size={16} className="text-green-500" />
@@ -242,26 +236,13 @@ export default function SearchResults() {
               </div>
             </div>
 
-            {/* Tabs */}
             <div className="flex gap-2 mb-6">
-              <button
-                onClick={() => setTab('direct')}
-                className={`px-4 py-2 rounded-lg text-sm font-bold transition ${
-                  tab === 'direct'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
+              <button onClick={() => setTab('direct')}
+                className={`px-4 py-2 rounded-lg text-sm font-bold transition ${tab === 'direct' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                 Direct Trains ({results.direct.length})
               </button>
-              <button
-                onClick={() => setTab('indirect')}
-                className={`px-4 py-2 rounded-lg text-sm font-bold transition ${
-                  tab === 'indirect'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
+              <button onClick={() => setTab('indirect')}
+                className={`px-4 py-2 rounded-lg text-sm font-bold transition ${tab === 'indirect' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                 Via Intermediate ({results.indirect.length})
                 {results.indirect.length > 0 && tab !== 'indirect' && (
                   <span className="ml-2 bg-orange-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded">NEW</span>
@@ -270,52 +251,56 @@ export default function SearchResults() {
             </div>
 
             {tab === 'direct' && (
-              <>
-                {results.direct.length === 0 ? (
-                  <div className="bg-white border border-slate-100 rounded-xl p-8 text-center">
-                    <Train size={40} className="text-slate-200 mx-auto mb-3" />
-                    <p className="font-bold text-slate-600 mb-1">No direct trains found</p>
-                    <p className="text-sm text-slate-400 mb-4">Try the "Via Intermediate" tab to find connecting routes.</p>
-                    <button
-                      onClick={() => setTab('indirect')}
-                      className="bg-indigo-600 text-white font-bold px-5 py-2 rounded-lg text-sm"
-                    >
-                      Show Connecting Trains
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {results.direct.map((r, i) => <DirectCard key={i} route={r} />)}
-                  </div>
-                )}
-              </>
+              results.direct.length === 0 ? (
+                <div className="bg-white border border-slate-100 rounded-xl p-8 text-center">
+                  <Train size={40} className="text-slate-200 mx-auto mb-3" />
+                  <p className="font-bold text-slate-600 mb-1">No direct trains found</p>
+                  <p className="text-sm text-slate-400 mb-4">Try the "Via Intermediate" tab to find connecting routes.</p>
+                  <button onClick={() => setTab('indirect')} className="bg-indigo-600 text-white font-bold px-5 py-2 rounded-lg text-sm">
+                    Show Connecting Trains
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {results.direct.map((r, i) => <DirectCard key={i} route={r} onBook={setBookingRoute} />)}
+                </div>
+              )
             )}
 
             {tab === 'indirect' && (
-              <>
-                {results.indirect.length === 0 ? (
-                  <div className="bg-white border border-slate-100 rounded-xl p-8 text-center">
-                    <p className="font-bold text-slate-600">No intermediate routes found</p>
-                    <p className="text-sm text-slate-400">Try a different source or destination.</p>
+              results.indirect.length === 0 ? (
+                <div className="bg-white border border-slate-100 rounded-xl p-8 text-center">
+                  <p className="font-bold text-slate-600">No intermediate routes found</p>
+                  <p className="text-sm text-slate-400">Try a different source or destination.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 mb-4 flex items-start gap-2 text-xs text-indigo-700">
+                    <CheckCircle size={14} className="mt-0.5 shrink-0" />
+                    <span>Routes found via Yen's K-Shortest Paths. Minimum <b>30-minute transfer buffer</b> enforced at every junction.</span>
                   </div>
-                ) : (
-                  <>
-                    <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 mb-4 flex items-start gap-2 text-xs text-indigo-700">
-                      <CheckCircle size={14} className="mt-0.5 shrink-0" />
-                      <span>
-                        A minimum <b>30-minute transfer buffer</b> is enforced.
-                      </span>
-                    </div>
-                    <div className="space-y-4">
-                      {results.indirect.map((r, i) => <IndirectCard key={i} route={r} />)}
-                    </div>
-                  </>
-                )}
-              </>
+                  <div className="space-y-4">
+                    {results.indirect.map((r, i) => <IndirectCard key={i} route={r} onBook={setBookingRoute} />)}
+                  </div>
+                </>
+              )
             )}
           </>
         )}
       </div>
+
+      {/* Booking modal — mounts when user clicks Book Now */}
+      {bookingRoute && (
+        <BookingModal
+          route={bookingRoute}
+          fromId={fromId}
+          toId={toId}
+          fromName={fromName}
+          toName={toName}
+          date={date}
+          onClose={() => setBookingRoute(null)}
+        />
+      )}
     </div>
   );
 }

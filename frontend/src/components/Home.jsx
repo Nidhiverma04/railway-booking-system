@@ -3,6 +3,7 @@ import Footer from './Footer';
 import RouteLogo from '../assets/route.png';
 import { Search, ArrowRightLeft, MapPin, Calendar, User, ChevronRight, Info } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 const API = 'http://localhost:5000';
 
@@ -68,6 +69,7 @@ function StationInput({ label, placeholder, value, onSelect, icon: Icon, iconCol
 
 const Home = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [from, setFrom] = useState(null);
   const [to, setTo]   = useState(null);
   const [date, setDate] = useState('');
@@ -102,12 +104,20 @@ const Home = () => {
           <a href="#" className="hover:text-slate-900">PNR Status</a>
           <a href="#" className="hover:text-slate-900">Live Running</a>
         </div>
-        <button
-          onClick={() => navigate('/Signup')}
-          className="text-sm font-bold border border-slate-200 px-5 py-2 rounded-lg hover:bg-slate-50 transition"
-        >
-          Login / Signup
-        </button>
+        {user ? (
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate('/dashboard')}
+              className="text-sm font-bold text-indigo-600 border border-indigo-200 px-4 py-2 rounded-lg hover:bg-indigo-50 transition">
+              My Bookings
+            </button>
+            <span className="text-sm text-slate-500 font-medium hidden md:block">Hi, {user.name?.split(' ')[0]}</span>
+          </div>
+        ) : (
+          <button onClick={() => navigate('/Signup')}
+            className="text-sm font-bold border border-slate-200 px-5 py-2 rounded-lg hover:bg-slate-50 transition">
+            Login / Signup
+          </button>
+        )}
       </nav>
 
       {/* SEARCH AREA */}
